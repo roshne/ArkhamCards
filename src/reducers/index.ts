@@ -64,6 +64,10 @@ import LatestDeckT from '@data/interfaces/LatestDeckT';
 import { Platform } from 'react-native';
 import InvestigatorSet from '@data/types/InvestigatorSet';
 
+// Web loads saved state from a server, which can be slow enough to hit redux-persist's 5 s default
+// timeout; a slice that times out starts empty and could then be saved over the real data.
+const WEB_NO_TIMEOUT = Platform.OS === 'web' ? 0 : undefined;
+
 const packsPersistConfig = {
   key: 'packs',
   timeout: 0,
@@ -96,6 +100,7 @@ const guidesPersistConfig = {
 
 const trackedQueriesPersistConfig = {
   key: 'trackedQueries',
+  timeout: WEB_NO_TIMEOUT,
   throttle: Platform.OS === 'android' ? 1000 : undefined,
   storage: AsyncStorage,
   blacklist: [],
@@ -135,6 +140,7 @@ const settingsPeristConfig = {
 
 const signedInPersistConfig = {
   key: 'signedIn',
+  timeout: WEB_NO_TIMEOUT,
   throttle: Platform.OS === 'android' ? 1000 : undefined,
   storage: AsyncStorage,
   blacklist: ['loading', 'error'],
@@ -142,6 +148,7 @@ const signedInPersistConfig = {
 
 const dissonantVoicesPersistConfig = {
   key: 'dissonantVoices',
+  timeout: WEB_NO_TIMEOUT,
   throttle: Platform.OS === 'android' ? 1000 : undefined,
   storage: AsyncStorage,
   blacklist: ['loading', 'error'],
@@ -149,6 +156,7 @@ const dissonantVoicesPersistConfig = {
 
 const filtersPersistConfig = {
   key: 'filters',
+  timeout: WEB_NO_TIMEOUT,
   throttle: Platform.OS === 'android' ? 1000 : undefined,
   storage: AsyncStorage,
   blacklist: ['all', 'defaults', 'mythos', 'sorts', 'newSorts', 'cardData'],
@@ -166,7 +174,7 @@ const rootReducer = combineReducers({
   filters: persistReducer(filtersPersistConfig, filters),
   deckEdits,
   dissonantVoices: persistReducer(dissonantVoicesPersistConfig, dissonantVoices),
-  patreon: persistReducer({ key: 'patreon', throttle: Platform.OS === 'android' ? 1000 : undefined, storage: AsyncStorage, blacklist: ['loading', 'error'] }, patreon),
+  patreon: persistReducer({ key: 'patreon', timeout: WEB_NO_TIMEOUT, throttle: Platform.OS === 'android' ? 1000 : undefined, storage: AsyncStorage, blacklist: ['loading', 'error'] }, patreon),
   trackedQueries: persistReducer(trackedQueriesPersistConfig, trackedQueries),
   decks: persistReducer(decksPersistConfig, decks),
   legacyGuides: persistReducer(legacyGuidesPersistConfig, legacyGuides),

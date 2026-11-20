@@ -15,6 +15,7 @@ services:
     container_name: arkhamcards-api
     command: ["node", "/app/server.mjs"]
     restart: unless-stopped
+    mem_limit: 256m
     environment:
       - ACCESS_TEAM_DOMAIN=${ACCESS_TEAM_DOMAIN:?ACCESS_TEAM_DOMAIN is unset -- set it in .env}
       - ACCESS_AUD=${ACCESS_AUD:?ACCESS_AUD is unset -- set it in .env}
@@ -43,6 +44,7 @@ services:
     image: arkhamcards-web:poc
     container_name: arkhamcards-web
     restart: unless-stopped
+    mem_limit: 128m
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -63,6 +65,7 @@ services:
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is unset -- set it in .env}
     restart: unless-stopped
+    mem_limit: 64m
     read_only: true
     cap_drop:
       - ALL

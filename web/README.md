@@ -16,13 +16,19 @@ The VM is too small to build the image, so build it elsewhere and load it there:
 ```bash
 docker build -t arkhamcards-web:poc .
 docker save arkhamcards-web:poc | gzip -1 | ssh <vm> 'gunzip | docker load'
+ssh <vm> 'mkdir -p /opt/stacks/arkhamcards/api'
 scp web/compose.azure.yaml <vm>:/opt/stacks/arkhamcards/compose.yaml
 scp web/api/server.mjs <vm>:/opt/stacks/arkhamcards/api/server.mjs
-ssh <vm> 'cd /opt/stacks/arkhamcards && docker compose up -d'
+ssh <vm> 'cd /opt/stacks/arkhamcards && docker compose up -d && docker compose restart api'
 ```
 
-The stack's `.env` on the VM holds `CLOUDFLARE_TUNNEL_TOKEN`, `ACCESS_TEAM_DOMAIN` and
-`ACCESS_AUD`.
+The last line restarts `api` because `server.mjs` is mounted from the stack directory, so
+`up -d` alone keeps running the old copy.
+
+The stack's `.env` (mode 600) must exist before the first `up`. It holds:
+- `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel's connector token.
+- `ACCESS_TEAM_DOMAIN`: `<team>.cloudflareaccess.com`.
+- `ACCESS_AUD`: the Access application's audience tag.
 
 Local dev without Docker: `npx expo export -p web --output-dir dist-web`, then serve `dist-web/`
 with any static server. With no `/api` there, data stays in that browser (below).
@@ -45,11 +51,18 @@ Tests:
   - **Identity:** the API takes the user from Cloudflare Access's signed token, after checking
     its signature, audience, issuer and expiry. Settings → Arkham Cards Account shows who is
     signed in.
-  - **First sign-in:** an account with no saved data takes over that browser's existing decks
-    and campaigns, once per browser. The browser keeps its own copy.
-  - **Conflicts:** each saved item has a version. A save made from an out-of-date copy, from
-    another device or tab, is refused instead of overwriting newer data. That tab then stops
-    saving and asks for a reload; its latest change is not saved.
+  - **First sign-in:** a browser's older data, saved before accounts, goes to the first account
+    that signs in there with no saved data. That account keeps getting it for any slice the
+    server doesn't have yet, so an interrupted move finishes on a later load. Other accounts
+    never get it, and the browser keeps its own copy. If your account already has data from
+    another device, the browser's older data is not merged in.
+  - **Conflicts:** each saved item has a version. A save made from an out-of-date copy is
+    refused instead of overwriting newer data. That happens when the same item was changed in
+    another tab or on another device; merely opening the app elsewhere changes nothing. The tab
+    whose save was refused stops saving and asks for a reload; its latest change is not saved.
+  - **Not per user:** the app's GraphQL cache and its sign-in handshake state still live in
+    browser storage. Neither should hold anything personal while sign-in and sync don't work on
+    web (below); that's from reading the code, not checked in a browser.
   - **Two tabs in one browser:** opening the app in a new tab stops the older tab saving
     (`src/lib/prepareWeb.web.ts`).
   - **No API:** where there is no `/api` (a plain static server), data is saved in that browser's

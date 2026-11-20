@@ -22,14 +22,23 @@ function base64urlJson(part) {
 // Returns a function that verifies an Access JWT and resolves to its claims, or throws.
 export function accessVerifier({ teamDomain, audience, fetchJwks, now = () => Date.now() }) {
   let keys = new Map();
-  let fetchedAt = 0;
-  const refresh = async() => {
-    if (now() - fetchedAt < 60_000 && keys.size) {
-      return;
+  let attemptedAt = -Infinity;
+  let inflight = null;
+  // At most one fetch at a time and one every 10 s, so a burst of unknown key ids can't turn into
+  // a burst of fetches; Cloudflare rotates keys rarely.
+  const refresh = () => {
+    if (inflight || now() - attemptedAt < 10_000) {
+      return inflight || Promise.resolve();
     }
-    const jwks = await fetchJwks(`https://${teamDomain}/cdn-cgi/access/certs`);
-    keys = new Map(jwks.keys.map((jwk) => [jwk.kid, crypto.createPublicKey({ key: jwk, format: 'jwk' })]));
-    fetchedAt = now();
+    attemptedAt = now();
+    inflight = fetchJwks(`https://${teamDomain}/cdn-cgi/access/certs`)
+      .then((jwks) => {
+        keys = new Map(jwks.keys.map((jwk) => [jwk.kid, crypto.createPublicKey({ key: jwk, format: 'jwk' })]));
+      })
+      .finally(() => {
+        inflight = null;
+      });
+    return inflight;
   };
   return async(token) => {
     const parts = (token || '').split('.');
@@ -86,7 +95,10 @@ function readBody(req, limit) {
   });
 }
 
-export function createHandler({ dataDir, verify, maxBytes = 25 * 1024 * 1024 }) {
+// The app saves about 13 keys; the caps keep one account from filling the VM's small disk.
+export function createHandler({
+  dataDir, verify, maxBytes = 25 * 1024 * 1024, maxKeys = 50, maxUserBytes = 200 * 1024 * 1024,
+}) {
   const userDir = (email) =>
     path.join(dataDir, crypto.createHash('sha256').update(email.toLowerCase()).digest('hex'));
 
@@ -109,7 +121,10 @@ export function createHandler({ dataDir, verify, maxBytes = 25 * 1024 * 1024 }) 
       return;
     }
     if (url.pathname === '/api/me' && req.method === 'GET') {
-      send(res, 200, { email: claims.email });
+      // hasData lets the client move a browser's older data only into an account with none.
+      const dir = userDir(claims.email);
+      const hasData = fs.existsSync(dir) && fs.readdirSync(dir).some((f) => f.endsWith('.json'));
+      send(res, 200, { email: claims.email, hasData });
       return;
     }
     const match = url.pathname.match(/^\/api\/state\/([^/]+)$/);
@@ -155,19 +170,29 @@ export function createHandler({ dataDir, verify, maxBytes = 25 * 1024 * 1024 }) 
         send(res, 409, { error: 'changed elsewhere', version });
         return;
       }
-      const next = { value: body.value, version: (version || 0) + 1 };
       fs.mkdirSync(dir, { recursive: true });
+      const others = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && path.join(dir, f) !== file);
+      const otherBytes = others.reduce((sum, f) => sum + fs.statSync(path.join(dir, f)).size, 0);
+      if (others.length >= maxKeys || otherBytes + Buffer.byteLength(body.value) > maxUserBytes) {
+        send(res, 507, { error: 'account storage is full' });
+        return;
+      }
+      const next = { value: body.value, version: (version || 0) + 1 };
+      // Write, flush and rename, so a crash leaves either the old file or the new one.
       const tmp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(next));
+      const fd = fs.openSync(tmp, 'w');
+      try {
+        fs.writeSync(fd, JSON.stringify(next));
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
       fs.renameSync(tmp, file);
       send(res, 200, { version: next.version });
       return;
     }
-    if (req.method === 'DELETE') {
-      fs.rmSync(file, { force: true });
-      send(res, 200, { ok: true });
-      return;
-    }
+    // No DELETE: redux-persist only removes keys on purge(), which the app never calls, and
+    // deleting would restart a key's version count.
     send(res, 405, { error: 'method not allowed' });
   };
   return (req, res) => handle(req, res).catch((e) => {
@@ -188,7 +213,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     teamDomain: ACCESS_TEAM_DOMAIN,
     audience: ACCESS_AUD,
     fetchJwks: async(url) => {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (!response.ok) {
         throw new Error(`fetching signing keys failed: HTTP ${response.status}`);
       }

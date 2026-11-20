@@ -28,7 +28,7 @@ let dataDir;
 before(async() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'state-api-'));
   const verify = accessVerifier({ teamDomain: TEAM, audience: AUD, fetchJwks: async() => ({ keys: [jwk] }) });
-  const handler = createHandler({ dataDir, verify, maxBytes: 1000 });
+  const handler = createHandler({ dataDir, verify, maxBytes: 1000, maxKeys: 3, maxUserBytes: 1500 });
   server = http.createServer((req, res) => handler(req, res));
   await new Promise((resolve) => server.listen(0, resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -45,10 +45,13 @@ const call = (pathname, { token, method = 'GET', body } = {}) => fetch(`${base}$
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-test('identifies the signed-in user', async() => {
-  const res = await call('/api/me', { token: sign(claimsFor('ann@example.com')) });
+test('identifies the signed-in user and whether they have saved data', async() => {
+  const token = sign(claimsFor('cal@example.com'));
+  const res = await call('/api/me', { token });
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { email: 'ann@example.com' });
+  assert.deepEqual(await res.json(), { email: 'cal@example.com', hasData: false });
+  await call('/api/state/persist:settings', { token, method: 'PUT', body: { value: 's', version: null } });
+  assert.deepEqual(await (await call('/api/me', { token })).json(), { email: 'cal@example.com', hasData: true });
 });
 
 test('rejects tokens that are missing, forged, expired, for another app or another issuer', async() => {
@@ -85,8 +88,40 @@ test('saves with versions and refuses to overwrite a newer copy', async() => {
   assert.deepEqual(await stale.json(), { error: 'changed elsewhere', version: 2 });
   const read = await call('/api/state/persist:decks', { token });
   assert.deepEqual(await read.json(), { value: 'v2', version: 2 });
-  await call('/api/state/persist:decks', { token, method: 'DELETE' });
-  assert.equal((await call('/api/state/persist:decks', { token })).status, 404);
+  // No deletes: one would restart the version count under an older copy.
+  assert.equal((await call('/api/state/persist:decks', { token, method: 'DELETE' })).status, 405);
+});
+
+test("caps each account's number of keys and total size", async() => {
+  const token = sign(claimsFor('dee@example.com'));
+  const put = (key, value) => call(`/api/state/${key}`, { token, method: 'PUT', body: { value, version: null } });
+  for (const key of ['a', 'b', 'c']) {
+    assert.equal((await put(key, 'x'.repeat(400))).status, 200, key);
+  }
+  assert.equal((await put('d', 'x')).status, 507, 'fourth key');
+  const fresh = sign(claimsFor('eve@example.com'));
+  const putFresh = (key, value) => call(`/api/state/${key}`, { token: fresh, method: 'PUT', body: { value, version: null } });
+  assert.equal((await putFresh('a', 'x'.repeat(900))).status, 200);
+  assert.equal((await putFresh('b', 'x'.repeat(700))).status, 507, 'over the total');
+});
+
+test('fetches signing keys once for a burst of unknown key ids', async() => {
+  let fetches = 0;
+  const verify = accessVerifier({
+    teamDomain: TEAM,
+    audience: AUD,
+    fetchJwks: async() => {
+      fetches += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { keys: [jwk] };
+    },
+  });
+  const token = sign(claimsFor('ann@example.com'));
+  const results = await Promise.all([verify(token), verify(token), verify(token)]);
+  assert.equal(results[2].email, 'ann@example.com');
+  assert.equal(fetches, 1);
+  await assert.rejects(verify(sign(claimsFor('ann@example.com'), { kid: 'rotated' })), /unknown signing key/);
+  assert.equal(fetches, 1, 'no refetch within 10 s');
 });
 
 test("users never see each other's data", async() => {

@@ -66,14 +66,15 @@ const FONTS = {
   'DM Serif Display': require('../../assets/DMSerifDisplay-Regular.ttf'),
 };
 
-// redux-persist saves whole slices from memory and never re-reads storage, so two open tabs
-// would overwrite each other's decks and campaigns. The newest tab wins: older tabs stop saving
-// and cover themselves with a notice. This tab announces itself as soon as this module loads,
-// which index.js does just before creating the store, so older tabs stop within the time the
-// message takes to arrive (milliseconds), not after the first render.
-// shortcut: anything an older tab saves before the message reaches it can still be overwritten,
-// and two tabs opened at the same moment (a session restore) both stop saving until one is
-// reloaded; take a Web Lock around saving if either ever matters.
+// redux-persist saves whole slices from memory and never re-reads storage. In browser storage two
+// open tabs would overwrite each other's decks and campaigns; on the server the version check
+// refuses the older tab's save instead, which stops it mid-edit. Either way the newest tab wins:
+// older tabs stop saving and cover themselves with a notice. This tab announces itself as soon
+// as this module loads, which index.js does just before creating the store, so older tabs stop
+// within the time the message takes to arrive (milliseconds), not after the first render.
+// shortcut: in browser storage, anything an older tab saves before the message reaches it can
+// still be overwritten, and two tabs opened at the same moment (a session restore) both stop
+// saving until one is reloaded; take a Web Lock around saving if either ever matters.
 let persistor: Persistor | undefined;
 let superseded = false;
 

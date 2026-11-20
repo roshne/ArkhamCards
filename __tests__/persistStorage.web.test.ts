@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 // Run with an inline config (the repo's jest preset no longer exists in this React Native):
-// npx jest --config '{"testMatch":["**/__tests__/persistStorage.web.test.ts"],"testEnvironment":"node"}'
+// npx jest --config '{"testMatch":["**/__tests__/*.test.ts"],"testEnvironment":"node"}'
 
 type Stored = { value: string; version: number };
 let server: Record<string, Stored>;
-let meResponse: { status: number; body?: unknown; contentType?: string };
+let me: { status: number; email?: string; contentType?: string };
 let putDelayMs: number;
+let failPutFor: string | undefined;
 let calls: string[];
 let supersededMessage: string | undefined;
 let asyncStore: Record<string, string>;
@@ -19,11 +20,13 @@ const reply = (status: number, body?: unknown, contentType = 'application/json')
   json: async() => body,
 });
 
+// A one-account stand-in for web/api: versions, 409s and hasData behave like the real server.
 function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
   const method = init.method || 'GET';
   calls.push(`${method} ${url}`);
   if (url === '/api/me') {
-    return Promise.resolve(reply(meResponse.status, meResponse.body, meResponse.contentType));
+    const body = { email: me.email, hasData: Object.keys(server).length > 0 };
+    return Promise.resolve(reply(me.status, body, me.contentType));
   }
   const key = decodeURIComponent(url.replace('/api/state/', ''));
   if (method === 'GET') {
@@ -31,6 +34,10 @@ function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
   }
   const { value, version } = JSON.parse(init.body as string);
   return new Promise((resolve) => setTimeout(() => {
+    if (key === failPutFor) {
+      resolve(reply(503, { error: 'unavailable' }));
+      return;
+    }
     const current = server[key]?.version ?? null;
     if (version !== current) {
       resolve(reply(409, { version: current }));
@@ -42,7 +49,8 @@ function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
 }
 
 function load() {
-  let mod: typeof import('../src/lib/persistStorage.web');
+  supersededMessage = undefined;
+  let mod: typeof import('../src/lib/persistStorage.web') | undefined;
   jest.isolateModules(() => {
     jest.doMock('../src/lib/prepareWeb.web', () => ({
       isSuperseded: () => supersededMessage !== undefined,
@@ -64,16 +72,22 @@ function load() {
     }));
     mod = require('../src/lib/persistStorage.web');
   });
-  // @ts-expect-error assigned inside isolateModules
-  return mod;
+  return (mod as typeof import('../src/lib/persistStorage.web')).default;
+}
+
+// What redux-persist does on load: read every slice, then save every slice back.
+async function loadAndResave(storage: ReturnType<typeof load>, keys: string[]) {
+  const values = await Promise.all(keys.map((k) => storage.getItem(k)));
+  await Promise.allSettled(keys.map((k, i) => storage.setItem(k, values[i] ?? `default ${k}`)));
+  return values;
 }
 
 beforeEach(() => {
   server = {};
-  meResponse = { status: 200, body: { email: 'ann@example.com' } };
+  me = { status: 200, email: 'ann@example.com' };
   putDelayMs = 0;
+  failPutFor = undefined;
   calls = [];
-  supersededMessage = undefined;
   asyncStore = {};
   local = {};
   Object.assign(globalThis, {
@@ -88,24 +102,49 @@ beforeEach(() => {
 });
 
 describe('persistStorage on web', () => {
-  it("moves this browser's data to a new account on first sign-in, once", async() => {
+  it("gives this browser's older data to the first account with none, and no one else", async() => {
     asyncStore['persist:decks'] = 'local decks';
-    const storage = load().default;
-    expect(await storage.getItem('persist:decks')).toBe('local decks');
-    await storage.setItem('persist:decks', 'local decks');
+    expect(await loadAndResave(load(), ['persist:decks'])).toEqual(['local decks']);
     expect(server['persist:decks']).toEqual({ value: 'local decks', version: 1 });
-    expect(local['arkhamcards:migratedTo']).toBe('ann@example.com');
 
-    // The next account signing in on this browser starts empty.
-    meResponse = { status: 200, body: { email: 'bob@example.com' } };
+    me = { status: 200, email: 'bob@example.com' };
     server = {};
-    const again = load().default;
-    expect(await again.getItem('persist:decks')).toBeNull();
+    expect(await load().getItem('persist:decks')).toBeNull();
+  });
+
+  it('leaves the older data alone when the account already has data elsewhere', async() => {
+    asyncStore['persist:campaigns'] = 'local campaigns';
+    server['persist:settings'] = { value: 'from my phone', version: 4 };
+    expect(await load().getItem('persist:campaigns')).toBeNull();
+    expect(local['arkhamcards:localDataOwner']).toBeUndefined();
+  });
+
+  it('resumes an interrupted move on the next load', async() => {
+    asyncStore['persist:decks'] = 'local decks';
+    asyncStore['persist:campaigns'] = 'local campaigns';
+    failPutFor = 'persist:campaigns';
+    await loadAndResave(load(), ['persist:decks', 'persist:campaigns']);
+    expect(server['persist:decks']?.value).toBe('local decks');
+    expect(server['persist:campaigns']).toBeUndefined();
+
+    failPutFor = undefined;
+    const storage = load();
+    expect(await loadAndResave(storage, ['persist:decks', 'persist:campaigns']))
+      .toEqual(['local decks', 'local campaigns']);
+    expect(server['persist:campaigns']).toEqual({ value: 'local campaigns', version: 1 });
+  });
+
+  it("doesn't re-save what the server already has, so opening another device changes nothing", async() => {
+    server['persist:decks'] = { value: 'v1', version: 1 };
+    calls = [];
+    await loadAndResave(load(), ['persist:decks']);
+    expect(calls.filter((c) => c.startsWith('PUT'))).toEqual([]);
+    expect(server['persist:decks'].version).toBe(1);
   });
 
   it('saves with the version it last saw and stops on a conflict', async() => {
     server['persist:decks'] = { value: 'v1', version: 1 };
-    const storage = load().default;
+    const storage = load();
     expect(await storage.getItem('persist:decks')).toBe('v1');
     await storage.setItem('persist:decks', 'v2');
     expect(server['persist:decks']).toEqual({ value: 'v2', version: 2 });
@@ -122,7 +161,7 @@ describe('persistStorage on web', () => {
 
   it('sends rapid saves one at a time, ending with the newest value', async() => {
     putDelayMs = 20;
-    const storage = load().default;
+    const storage = load();
     await storage.getItem('persist:campaigns');
     await Promise.all(['a', 'b', 'c'].map((v) => storage.setItem('persist:campaigns', v)));
     expect(supersededMessage).toBeUndefined();
@@ -131,8 +170,8 @@ describe('persistStorage on web', () => {
   });
 
   it('falls back to browser storage where there is no API', async() => {
-    meResponse = { status: 404 };
-    const storage = load().default;
+    me = { status: 404 };
+    const storage = load();
     await storage.setItem('persist:settings', 's');
     expect(asyncStore['persist:settings']).toBe('s');
     expect(await storage.getItem('persist:settings')).toBe('s');
@@ -140,8 +179,8 @@ describe('persistStorage on web', () => {
   });
 
   it('stops, without falling back, when the API is there but failing', async() => {
-    meResponse = { status: 502, body: '<html>', contentType: 'text/html' };
-    const storage = load().default;
+    me = { status: 502, contentType: 'text/html' };
+    const storage = load();
     await expect(storage.getItem('persist:decks')).rejects.toThrow('HTTP 502');
     expect(supersededMessage).toMatch(/can't reach your saved data/);
     expect(asyncStore).toEqual({});
