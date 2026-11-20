@@ -95,7 +95,7 @@ function readBody(req, limit) {
   });
 }
 
-// The app saves about 13 keys; the caps keep one account from filling the VM's small disk.
+// The app saves about 13 keys; the caps keep one account from filling the host's small disk.
 export function createHandler({
   dataDir, verify, maxBytes = 25 * 1024 * 1024, maxKeys = 50, maxUserBytes = 200 * 1024 * 1024,
 }) {

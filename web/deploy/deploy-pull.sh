@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# arkhamcards auto-deploy -- pull the published image and recreate the container ONLY when it isn't
+# already running that image.
+#
+# Copied from rackbops-web-deploy-template (servers/node-app/publish), changed only so SERVICE comes
+# from the environment: arkhamcards-deploy.service runs it once per image (api, web). A systemd system
+# timer (the paired .service/.timer) runs it on a poll. UNLIKE nginx-static's pull model (a git clone
+# + logged reminders, no docker), a container app must actually SWAP its image, so this DOES run
+# docker: log in to the registry, `compose pull`, and `up -d` when-and-only-when the RUNNING
+# CONTAINER's own image doesn't match the tag's image (#108: comparing the running container, not a
+# before/after snapshot of the tag alone, is what makes a failed recreate retry on the next run
+# instead of reporting "unchanged" forever). That means the timer's user must be in the `docker`
+# group (root-equivalent) -- see the README's trust note.
+#
+# The app NEVER pulls itself. This external one-shot is the only thing that swaps the image -- design
+# §10's load-bearing "the thing being replaced never performs its own replacement" (1.x's in-place
+# self-heal crash-looped the box 53,000+ times, un-runnable in the broken state). A periodic one-shot
+# timer, NOT a daemon watching the docker socket (rejected -- it defeats the point of dockerizing).
+set -euo pipefail
+
+STACK_DIR="/opt/stacks/arkhamcards"   # compose.yaml + .env live here
+SERVICE="${SERVICE:?set SERVICE to the compose service to swap: web or api}"
+
+cd "$STACK_DIR" || exit 1
+
+# Private registry: authenticate before pulling. Read the read:packages credential from .env with
+# grep -- NOT `source .env`, so arbitrary .env content is never executed. A repeat login is a no-op.
+# Compose accepts a quoted value (REGISTRY_TOKEN="ghp_...") and strips the quotes; grep|cut keeps
+# them, so env_value strips one surrounding pair of double or single quotes the same way.
+env_value() {
+  local v
+  v="$(grep -E "^$1=" .env 2>/dev/null | cut -d= -f2- || true)"
+  v="${v%$'\r'}"   # a CRLF .env would otherwise leave the \r after the closing quote
+  if [[ "$v" =~ ^\"(.*)\"$ ]] || [[ "$v" =~ ^\'(.*)\'$ ]]; then v="${BASH_REMATCH[1]}"; fi
+  printf '%s' "$v"
+}
+reg="$(env_value REGISTRY)"; reg="${reg:-ghcr.io}"
+reg_user="$(env_value REGISTRY_USER)"
+reg_token="$(env_value REGISTRY_TOKEN)"
+if [[ -n "$reg_token" ]]; then
+  printf '%s' "$reg_token" | docker login "$reg" -u "${reg_user:-USERNAME}" --password-stdin >/dev/null
+fi
+
+# The image ref compose will use (resolved from compose.yaml + .env).
+# One line for one service; take the first with a parameter expansion, NOT `| head` -- under
+# `set -o pipefail` a `| head` can SIGPIPE-abort the caller if the writer keeps writing (the
+# anti-pattern nginx-static's deploy-pull.sh deliberately avoids; harmless here, consistent to match).
+img="$(docker compose config --images "$SERVICE")"; img="${img%%$'\n'*}"
+
+docker compose pull "$SERVICE"
+
+# Decide by comparing the RUNNING CONTAINER's image against the tag's image, not a before/after
+# snapshot of the tag alone (#108: a before/after tag comparison can never notice that `up -d`
+# itself failed -- if the pull succeeds but the recreate below doesn't, `before == after` on every
+# later run forever, so a daemon error or the unit's own timeout killing `up -d` mid-recreate
+# leaves the service on the old image, or down if the old container was already removed, with no
+# further retry). `.Image` on a container is the image ID it's actually running, comparable
+# directly to `.Id` on the image the tag now points at.
+want="$(docker image inspect --format '{{.Id}}' "$img")"
+if [[ -z "$want" ]]; then
+  echo "arkhamcards $SERVICE: docker image inspect returned no id for $img -- refusing to guess, not recreating." >&2
+  exit 1
+fi
+
+# `compose ps -q` (no `--all`) reports only a RUNNING container -- a merely-stopped one (crashed,
+# or deliberately `compose stop`ped) counts the same as "none" here, so this also recreates a
+# stopped container on the next poll, not only a wrong-image one. That's a real behavior change
+# from the pre-#108 script, which never looked at the container's state at all: harmless self-
+# healing for the common case (a crash), but if a stopped container is ever meant to STAY stopped,
+# disable the timer (`systemctl stop arkhamcards-deploy.timer`) rather than relying on this script to
+# leave it alone.
+cid="$(docker compose ps -q "$SERVICE")"
+if [[ -n "$cid" ]]; then
+  have="$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || echo none)"
+else
+  have="none"
+fi
+
+if [[ "$have" == "$want" ]]; then
+  echo "arkhamcards $SERVICE: $img unchanged (${want:0:19}), nothing to do."
+  exit 0
+fi
+
+echo "arkhamcards $SERVICE: $img changed ${have:0:19} -> ${want:0:19} -- recreating the container."
+# Recreate just the app with the new image; the cloudflared sidecar keeps running. --force-recreate
+# so the swap is unconditional (we already know the running container doesn't match), not left to
+# compose's own change detection; --no-build so a stray `build:` can never silently roll code back
+# to a local build. If this fails, the script exits non-zero (set -e) with `have` still not equal to
+# `want` on disk -- the unit shows failed, and the next timer run sees the same mismatch and retries.
+docker compose up -d --no-build --force-recreate "$SERVICE"

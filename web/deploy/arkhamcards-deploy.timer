@@ -1,0 +1,15 @@
+# arkhamcards auto-deploy -- fires arkhamcards-deploy.service on a poll, so a newly published
+# :latest goes live within 5 minutes. From rackbops-web-deploy-template.
+# Install as /etc/systemd/system/arkhamcards-deploy.timer.
+[Unit]
+Description=arkhamcards -- poll the registry for new images
+
+[Timer]
+Unit=arkhamcards-deploy.service
+# 2 min after boot, then every 5 min after each run. Keep both: OnUnitActiveSec alone never fires
+# after a reboot until something runs the service by hand.
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

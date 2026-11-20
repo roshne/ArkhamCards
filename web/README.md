@@ -5,39 +5,50 @@ Expo's web export of the app, served by nginx in a container, at
 
 ## Running it
 
-It runs on the rackbops-web Azure VM as the stack in `web/compose.azure.yaml`:
+It runs on an Azure VM as the stack in `web/compose.azure.yaml`:
 
 - **`web`**: this repo's `Dockerfile` (the app, served by nginx).
-- **`api`**: `web/api/server.mjs`, which holds each user's saved data in the `state` volume.
+- **`api`**: `web/api/server.mjs` (image from `web/api/Dockerfile`), which holds each user's saved
+  data in the `state` volume.
 - **`cloudflared`**: the tunnel sidecar. Nothing publishes a host port.
 
-Before the first deploy, two things must exist:
+### Releasing
+
+Push a `vX.Y.Z` tag on `web-poc`. `.github/workflows/web-release.yml` then builds both images on
+GitHub's hosted runners and publishes them as `ghcr.io/roshne/arkhamcards-web` and
+`ghcr.io/roshne/arkhamcards-api`, tagged `X.Y.Z` and, for the newest tag, `latest`. On the host,
+`arkhamcards-deploy.timer` checks every 5 minutes and recreates `api` and `web` when `latest`
+points at a new image (`web/deploy/deploy-pull.sh`, from rackbops-web-deploy-template). To roll
+back, set `IMAGE_TAG=X.Y.Z` in the stack's `.env`; the timer then holds that version.
+
+A change to `web/compose.azure.yaml` itself still has to be copied to the host by hand, followed
+by `docker compose up -d`.
+
+### First-time setup on a host
+
 - **On Cloudflare:** a remotely managed tunnel routing the hostname to `http://web:80` with Access
   required, and an Access application for the hostname.
-- **On the VM:** the stack's `.env` (mode 600) in `/opt/stacks/arkhamcards/`, holding:
-  - `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel's connector token.
-  - `ACCESS_TEAM_DOMAIN`: `<team>.cloudflareaccess.com`.
-  - `ACCESS_AUD`: the Access application's audience tag.
+- **In the stack directory** (`/opt/stacks/arkhamcards`):
+  - `compose.yaml`: a copy of `web/compose.azure.yaml`.
+  - `deploy/deploy-pull.sh`: a copy of `web/deploy/deploy-pull.sh`.
+  - `.env` (mode 600), holding:
+    - `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel's connector token.
+    - `ACCESS_TEAM_DOMAIN`: `<team>.cloudflareaccess.com`.
+    - `ACCESS_AUD`: the Access application's audience tag.
+    - `REGISTRY_USER` and `REGISTRY_TOKEN`: only if the GHCR packages are private, a login with
+      `read:packages`.
+- **systemd:** copy `web/deploy/arkhamcards-deploy.{service,timer}` to `/etc/systemd/system/`,
+  then `systemctl daemon-reload && systemctl enable --now arkhamcards-deploy.timer`. The unit
+  runs as the stack's user, who must be in the `docker` group.
 
-The VM is too small to build the image, so build it elsewhere and load it there:
-
-```bash
-docker build -t arkhamcards-web:poc .
-docker save arkhamcards-web:poc | gzip -1 | ssh <vm> 'gunzip | docker load'
-ssh <vm> 'mkdir -p /opt/stacks/arkhamcards/api'
-scp web/compose.azure.yaml <vm>:/opt/stacks/arkhamcards/compose.yaml
-scp web/api/server.mjs <vm>:/opt/stacks/arkhamcards/api/server.mjs
-ssh <vm> 'cd /opt/stacks/arkhamcards && docker compose up -d && docker compose restart api'
-```
-
-The last line restarts `api` because `server.mjs` is mounted from the stack directory, so
-`up -d` alone keeps running the old copy.
+Then `docker compose up -d` in the stack directory.
 
 Local dev without Docker: `npx expo export -p web --output-dir dist-web`, then serve `dist-web/`
 with any static server. With no `/api` there, data stays in that browser (below).
 
 Tests:
 - `node --test web/api` runs the API's tests.
+- `bash web/deploy/deploy-pull.test.sh` runs the deploy script's tests (a fake `docker`).
 - The client tests run with an inline Jest config, since the repo's preset no longer exists in
   this React Native version:
   `npx jest --config '{"testMatch":["**/__tests__/*.test.ts"],"testEnvironment":"node"}'`.
@@ -60,9 +71,9 @@ Tests:
     never get it, and the browser keeps its own copy. If your account already has data from
     another device, the browser's older data is not merged in. If a move is interrupted and you
     open the app on another device before reloading this browser, the slices that hadn't moved
-    start fresh in the account (on every device) and the browser's copy of them goes unused. Browser data belongs to the
-    address it was saved under, so data saved by the retired LAN copy at `192.168.7.26:8796` can't
-    move here.
+    start fresh in the account (on every device) and the browser's copy of them goes unused. Browser
+    data belongs to the address it was saved under, so data saved by an earlier copy of the app at a
+    different address can't move here.
   - **Conflicts:** each saved item has a version. A save made from an out-of-date copy is
     refused instead of overwriting newer data. That happens when the same item was changed in
     another tab or on another device. Merely opening the app elsewhere changes nothing, with two
