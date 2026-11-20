@@ -1,5 +1,6 @@
 import { Asset } from 'expo-asset';
 import { Connection } from 'typeorm/browser';
+import { store } from '@app/store';
 import Database from './Database';
 import { replaceDatabase } from './webSqlite';
 import type { BundledDatabaseMetadata } from './bundledDatabase';
@@ -28,7 +29,16 @@ export async function loadBundledDatabaseIfNeeded(
     }
     await replaceDatabase('arkham4', new Uint8Array(await response.arrayBuffer()));
     await connection.query('PRAGMA foreign_keys = ON');
-    return metadata;
+    // The card database needs loading on every page load, but the saved state already describes
+    // this bundle after the first one. Re-applying it then would rewrite the packs' fetch time and
+    // clear the language setting each load, and so change saved slices that other devices are
+    // still editing (their next save would be refused). DatabaseProvider renders inside
+    // PersistGate, so the saved state is loaded by now.
+    const { cards, packs } = store.getState();
+    const alreadyApplied = packs.all.length > 0 &&
+      cards.schemaVersion === metadata.schemaVersion &&
+      cards.cache?.lastModified === metadata.cache?.lastModified;
+    return alreadyApplied ? null : metadata;
   } catch (error) {
     console.error('Error loading bundled database:', error);
     return null;

@@ -170,25 +170,25 @@ export function createHandler({
         send(res, 409, { error: 'changed elsewhere', version });
         return;
       }
+      const contents = JSON.stringify({ value: body.value, version: (version || 0) + 1 });
       fs.mkdirSync(dir, { recursive: true });
       const others = fs.readdirSync(dir).filter((f) => f.endsWith('.json') && path.join(dir, f) !== file);
       const otherBytes = others.reduce((sum, f) => sum + fs.statSync(path.join(dir, f)).size, 0);
-      if (others.length >= maxKeys || otherBytes + Buffer.byteLength(body.value) > maxUserBytes) {
+      if (others.length >= maxKeys || otherBytes + Buffer.byteLength(contents) > maxUserBytes) {
         send(res, 507, { error: 'account storage is full' });
         return;
       }
-      const next = { value: body.value, version: (version || 0) + 1 };
       // Write, flush and rename, so a crash leaves either the old file or the new one.
       const tmp = `${file}.${process.pid}.tmp`;
       const fd = fs.openSync(tmp, 'w');
       try {
-        fs.writeSync(fd, JSON.stringify(next));
+        fs.writeSync(fd, contents);
         fs.fsyncSync(fd);
       } finally {
         fs.closeSync(fd);
       }
       fs.renameSync(tmp, file);
-      send(res, 200, { version: next.version });
+      send(res, 200, { version: (version || 0) + 1 });
       return;
     }
     // No DELETE: redux-persist only removes keys on purge(), which the app never calls, and

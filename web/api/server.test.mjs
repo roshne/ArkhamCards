@@ -103,6 +103,11 @@ test("caps each account's number of keys and total size", async() => {
   const putFresh = (key, value) => call(`/api/state/${key}`, { token: fresh, method: 'PUT', body: { value, version: null } });
   assert.equal((await putFresh('a', 'x'.repeat(900))).status, 200);
   assert.equal((await putFresh('b', 'x'.repeat(700))).status, 507, 'over the total');
+  // The cap counts what is written: a control character is 1 byte in the value, 6 on disk.
+  const third = sign(claimsFor('fay@example.com'));
+  const putThird = (key, value) => call(`/api/state/${key}`, { token: third, method: 'PUT', body: { value, version: null } });
+  assert.equal((await putThird('a', 'x'.repeat(900))).status, 200);
+  assert.equal((await putThird('b', '\u0001'.repeat(120))).status, 507, 'escaped size over the total');
 });
 
 test('fetches signing keys once for a burst of unknown key ids', async() => {

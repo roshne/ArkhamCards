@@ -11,6 +11,14 @@ It runs on the rackbops-web Azure VM as the stack in `web/compose.azure.yaml`:
 - **`api`**: `web/api/server.mjs`, which holds each user's saved data in the `state` volume.
 - **`cloudflared`**: the tunnel sidecar. Nothing publishes a host port.
 
+Before the first deploy, two things must exist:
+- **On Cloudflare:** a remotely managed tunnel routing the hostname to `http://web:80` with Access
+  required, and an Access application for the hostname.
+- **On the VM:** the stack's `.env` (mode 600) in `/opt/stacks/arkhamcards/`, holding:
+  - `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel's connector token.
+  - `ACCESS_TEAM_DOMAIN`: `<team>.cloudflareaccess.com`.
+  - `ACCESS_AUD`: the Access application's audience tag.
+
 The VM is too small to build the image, so build it elsewhere and load it there:
 
 ```bash
@@ -24,11 +32,6 @@ ssh <vm> 'cd /opt/stacks/arkhamcards && docker compose up -d && docker compose r
 
 The last line restarts `api` because `server.mjs` is mounted from the stack directory, so
 `up -d` alone keeps running the old copy.
-
-The stack's `.env` (mode 600) must exist before the first `up`. It holds:
-- `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel's connector token.
-- `ACCESS_TEAM_DOMAIN`: `<team>.cloudflareaccess.com`.
-- `ACCESS_AUD`: the Access application's audience tag.
 
 Local dev without Docker: `npx expo export -p web --output-dir dist-web`, then serve `dist-web/`
 with any static server. With no `/api` there, data stays in that browser (below).
@@ -55,7 +58,11 @@ Tests:
     that signs in there with no saved data. That account keeps getting it for any slice the
     server doesn't have yet, so an interrupted move finishes on a later load. Other accounts
     never get it, and the browser keeps its own copy. If your account already has data from
-    another device, the browser's older data is not merged in.
+    another device, the browser's older data is not merged in. If a move is interrupted and you
+    open the app on another device before reloading this browser, the slices that hadn't moved
+    start fresh there and the browser's copy of them goes unused. Browser data belongs to the
+    address it was saved under, so data saved by the retired LAN copy at `192.168.7.26:8796` can't
+    move here.
   - **Conflicts:** each saved item has a version. A save made from an out-of-date copy is
     refused instead of overwriting newer data. That happens when the same item was changed in
     another tab or on another device; merely opening the app elsewhere changes nothing. The tab
@@ -74,9 +81,8 @@ Tests:
 
 ## Not working on web
 
-- Other languages: the web build is English. Picking another language in Settings lasts until
-  the next reload: each page load re-applies the bundled English cards, which clears the
-  setting. Translated cards can't be downloaded either (CORS, below).
+- Translated cards: the cards are always the bundled English set, since translated ones can't
+  be downloaded (CORS, below). The app's own text follows the language chosen in Settings.
 - Sign-in and sync to Arkham Cards accounts (Firebase), ArkhamDB, Google and Apple. ArkhamDB
   needs its own OAuth credentials for this site, and its token and API endpoints refuse browser
   requests (CORS). The Arkham Cards GraphQL server also refuses browser requests, so card
