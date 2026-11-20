@@ -38,8 +38,9 @@ function getDatabase(name: string): Promise<SqlJsDatabase> {
 }
 
 // Swap the in-memory database behind `name` for a copy of `bytes`. Queries started after the
-// swap, including on connections already open, use the new database; a transaction already in
-// progress keeps the old one.
+// swap, including on connections already open, use the new database. A transaction already in
+// progress fails on its next statement, because the old database is closed; the only swap runs
+// at startup, before any transaction.
 export function replaceDatabase(name: string, bytes: Uint8Array): Promise<void> {
   const previous = databases[name];
   databases[name] = sqlP.then((SQL) => new SQL.Database(bytes));

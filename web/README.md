@@ -28,6 +28,8 @@ with any static server that falls back to `index.html`.
 
 ## Not working on web
 
+- Other languages: the web build is English. Picking another language in Settings lasts until
+  the next reload, because the translated cards can't be downloaded (CORS, below).
 - Sign-in and sync: Arkham Cards accounts (Firebase), ArkhamDB, Google and Apple sign-in.
   The Arkham Cards GraphQL server also refuses browser requests (CORS), so card updates after
   the bundled snapshot don't download.
@@ -38,5 +40,7 @@ with any static server that falls back to `index.html`.
   don't persist.
 - Sharing: the browser share sheet needs HTTPS or localhost, and the LAN address is plain
   HTTP, so share buttons don't work there.
+- Browser Back leaves the app rather than going back a screen, and skips the "discard
+  changes?" prompt, so unsaved deck edits are lost. Use the in-app back arrow.
 - URLs: routes aren't mirrored into the address bar (route params hold objects that don't
   survive a reload), so a reload returns to the home screen and screens can't be bookmarked.

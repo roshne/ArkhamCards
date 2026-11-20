@@ -17,10 +17,11 @@ globalThis.RNFB_SILENCE_MODULAR_DEPRECATION_WARNINGS = true;
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
+// Before the store: on web, loading prepareWeb tells other open tabs to stop saving.
+import prepareWeb from './src/lib/prepareWeb';
 import { store, persistor } from './src/application/store';
 import createApolloClient from './src/data/apollo/createApolloClient';
 import AppNavigator from './src/navigation/AppNavigator';
-import prepareWeb from './src/lib/prepareWeb';
 
 if (__DEV__) {
   // Adds messages only in a dev environment
