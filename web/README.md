@@ -81,8 +81,10 @@ Tests:
 
 ## Not working on web
 
-- Translated cards: the cards are always the bundled English set, since translated ones can't
-  be downloaded (CORS, below). The app's own text follows the language chosen in Settings.
+- Other languages: the cards are always the bundled English set, since translated ones can't be
+  downloaded (CORS, below). Choosing another language in Settings changes the app's text until
+  the next reload, then reverts: the app clears the setting when the translated-card download it
+  starts fails (checked in a browser).
 - Sign-in and sync to Arkham Cards accounts (Firebase), ArkhamDB, Google and Apple. ArkhamDB
   needs its own OAuth credentials for this site, and its token and API endpoints refuse browser
   requests (CORS). The Arkham Cards GraphQL server also refuses browser requests, so card
