@@ -1,8 +1,16 @@
-// Web only: the native builds embed these fonts at build time (expo-font plugin), the browser has
-// to load them. Family names are the file names, which is what the app asks for off iOS, plus
-// the iOS-style family names a few components use.
+// Web-only startup work that native builds get from the platform (see prepareWeb.ts).
+import { Alert } from 'react-native';
 import * as Font from 'expo-font';
+import WebAlert from '@blazejkustra/react-native-alert';
+import type { Persistor } from 'redux-persist';
 
+// react-native-web's Alert.alert does nothing, which silently drops every confirmation prompt.
+// This package (already a dependency) draws them as an in-page <dialog>.
+Alert.alert = WebAlert.alert;
+
+// Native builds embed these fonts at build time (expo-font plugin); the browser has to load
+// them. Family names are the file names, which is what the app asks for off iOS, plus the
+// iOS-style family names a few components use.
 const FONTS = {
   'AboutDead': require('../../assets/AboutDead.ttf'),
   'Alegreya-Bold': require('../../assets/Alegreya-Bold.ttf'),
@@ -54,6 +62,27 @@ const FONTS = {
   'DM Serif Display': require('../../assets/DMSerifDisplay-Regular.ttf'),
 };
 
-export default function loadFonts(): Promise<void> {
+// redux-persist saves whole slices from memory and never re-reads storage, so two open tabs
+// would overwrite each other's decks and campaigns. The newest tab wins: older tabs stop saving
+// and cover themselves with a notice.
+function guardSingleTab(persistor: Persistor) {
+  const channel = new BroadcastChannel('arkhamcards-tabs');
+  channel.onmessage = () => {
+    persistor.pause();
+    channel.close();
+    const notice = document.createElement('div');
+    notice.textContent = 'Arkham Cards is open in another tab, so this tab no longer saves changes. Reload this tab to use it here instead.';
+    Object.assign(notice.style, {
+      position: 'fixed', inset: '0', zIndex: '2147483647', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', padding: '24px', textAlign: 'center',
+      background: 'rgba(0, 0, 0, 0.85)', color: '#fff', font: '18px sans-serif',
+    });
+    document.body.appendChild(notice);
+  };
+  channel.postMessage('opened');
+}
+
+export default function prepareWeb(persistor: Persistor): Promise<void> {
+  guardSingleTab(persistor);
   return Font.loadAsync(FONTS);
 }

@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     ports:
       # nitro's LAN address: http://192.168.7.26:8796 from any device on the LAN. Docker
-      # publishes past ufw, so no firewall rule is involved; it is not on the internet.
+      # publishes past ufw, so no firewall rule is involved.
       - "192.168.7.26:8796:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]

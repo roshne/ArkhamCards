@@ -16,22 +16,27 @@ with any static server that falls back to `index.html`.
 - `metro.config.js` maps native-only modules to stand-ins in `web/shims/` for the web platform
   only. op-sqlite maps to `src/data/sqlite/webSqlite.ts`, a sql.js driver.
 - The card database lives in memory. `bundledDatabase.web.ts` loads `assets/generated/arkham4.db`
-  into it on every page load. Decks, campaigns and settings persist in browser storage through
-  redux-persist, as on native.
+  into it on every page load. Those cards are English, whatever the language setting.
+- Decks, campaigns and settings are saved in the browser's localStorage through redux-persist.
+  It writes from memory without re-reading storage, so only one tab may save: opening the app
+  in a new tab stops the older tab saving and covers it with a notice
+  (`src/lib/prepareWeb.web.ts`).
 - `babel.config.js` compiles imports to CommonJS on web, as on native. Expo's default ESM path
   turns the app's circular imports into a startup crash.
-- `src/lib/loadFonts.web.ts` loads the bundled fonts, which native builds embed at build time.
+- `src/lib/prepareWeb.web.ts` also loads the bundled fonts (native builds embed them at build
+  time) and makes `Alert.alert` show an in-page dialog (react-native-web's does nothing).
 
 ## Not working on web
 
 - Sign-in and sync: Arkham Cards accounts (Firebase), ArkhamDB, Google and Apple sign-in.
   The Arkham Cards GraphQL server also refuses browser requests (CORS), so card updates after
   the bundled snapshot don't download.
-- Deck charts and campaign location maps (Skia) render blank.
+- Deck charts (Skia) render blank, and campaign location layouts lose their Skia-drawn
+  decoration; the location cards still show.
 - Backups (file system and file picker) and haptics.
 - Saved credentials: the keychain stand-in stores nothing, so narration and Patreon sign-ins
   don't persist.
 - Sharing: the browser share sheet needs HTTPS or localhost, and the LAN address is plain
   HTTP, so share buttons don't work there.
-- Route URLs carry `[object Object]` for some IDs, so a reload on a deck or campaign screen
-  doesn't restore that screen.
+- URLs: routes aren't mirrored into the address bar (route params hold objects that don't
+  survive a reload), so a reload returns to the home screen and screens can't be bookmarked.

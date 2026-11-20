@@ -122,7 +122,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { AppState, getThemeOverride } from '@reducers';
 import { DARK_THEME, LIGHT_THEME, ThemeColors } from '@styles/theme';
 import COLORS from '@styles/colors';
-import { Appearance } from 'react-native';
+import { Appearance, Platform } from 'react-native';
 import { ApolloClient } from '@apollo/client';
 import { Persistor } from 'redux-persist/es/types';
 import { CHANGE_TAB, BROWSE_CARDS, BROWSE_DECKS, BROWSE_CAMPAIGNS, BROWSE_SETTINGS } from '@actions/types';
@@ -1072,7 +1072,9 @@ function AppNavigatorInner({ navigationRef }: {
               }
             }
           }}
-          linking={linking}
+          // Web: linking would mirror routes into the address bar, and route params hold
+          // objects that don't survive a reload. Without it a reload returns to the home screen.
+          linking={Platform.OS === 'web' ? undefined : linking}
           theme={{
             dark: darkMode,
             colors: {

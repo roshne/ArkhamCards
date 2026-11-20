@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals';
 // @ts-expect-error sql.js ships no types for its dist files
 import initSqlJs from 'sql.js/dist/sql-wasm-inline.js';
 import { open, replaceDatabase } from '../src/data/sqlite/webSqlite';

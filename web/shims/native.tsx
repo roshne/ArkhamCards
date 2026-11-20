@@ -13,7 +13,7 @@ export const GoogleSignin = {
   signIn: notOnWeb,
   signOut: async() => undefined,
 };
-export const GoogleSigninButton = () => null;
+export const GoogleSigninButton = Object.assign(() => null, { Size: {}, Color: {} });
 export const statusCodes = {};
 
 // @invertase/react-native-apple-authentication

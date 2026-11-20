@@ -37,7 +37,9 @@ function getDatabase(name: string): Promise<SqlJsDatabase> {
   return databases[name];
 }
 
-// Swap the in-memory database behind `name` for a copy of `bytes`; open connections follow.
+// Swap the in-memory database behind `name` for a copy of `bytes`. Queries started after the
+// swap, including on connections already open, use the new database; a transaction already in
+// progress keeps the old one.
 export function replaceDatabase(name: string, bytes: Uint8Array): Promise<void> {
   const previous = databases[name];
   databases[name] = sqlP.then((SQL) => new SQL.Database(bytes));
@@ -47,6 +49,8 @@ export function replaceDatabase(name: string, bytes: Uint8Array): Promise<void> 
 }
 
 function run(db: SqlJsDatabase, sql: string, params?: unknown[]): QueryResult {
+  // shortcut: prepare() runs only the first statement of a multi-statement string, where
+  // op-sqlite runs them all. Nothing on web sends one; split the string if that changes.
   const statement = db.prepare(sql);
   try {
     // sql.js rejects undefined, which TypeORM passes for missing values.
