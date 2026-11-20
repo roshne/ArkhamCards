@@ -18,7 +18,9 @@ permissions:
   packages: write
 
 # One release at a time: the :latest decision reads the tag list at job start, so two overlapping
-# builds could otherwise finish out of order and leave :latest on the older one.
+# builds could otherwise finish out of order and leave :latest on the older one. GitHub keeps only
+# one queued run, so a tag pushed while another is building and then overtaken by a newer tag is
+# never built; :latest still ends right, and re-running that tag's run builds its X.Y.Z images.
 concurrency:
   group: web-release
   cancel-in-progress: false

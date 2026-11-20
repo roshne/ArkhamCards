@@ -22,7 +22,8 @@ moves to it, after both builds succeed. On the host, `arkhamcards-deploy.timer` 
 minutes and recreates `api`, then `web`, when `latest` points at a new image
 (`web/deploy/deploy-pull.sh`, from rackbops-web-deploy-template). To rebuild a tag, re-run its
 workflow run. To roll back, set `IMAGE_TAG=X.Y.Z` in the stack's `.env`; the timer then holds
-both images at that version until the line is removed.
+both images at that version until the line is removed. The new `api` can go live up to one timer
+run before the new `web`, so an API change has to keep working with the previous web build.
 
 A change to `web/compose.azure.yaml` itself still has to be copied to the host by hand, followed
 by `docker compose up -d`.
@@ -32,7 +33,7 @@ by `docker compose up -d`.
 - **On Cloudflare:** a remotely managed tunnel routing the hostname to `http://web:80` with Access
   required, and an Access application for the hostname.
 - **A release** (above): the images must exist on GHCR before the host can pull them. The packages
-  are public (they took this repo's visibility), so the host needs no registry login.
+  are public (an anonymous pull works), so the host needs no registry login.
 - **In the stack directory**, which must be `/opt/stacks/arkhamcards` (the script and the unit
   both name it), owned by a user in the `docker` group:
   - `compose.yaml`: a copy of `web/compose.azure.yaml`.
@@ -55,8 +56,8 @@ with any static server. With no `/api` there, data stays in that browser (below)
 Tests:
 - `node --test web/api` runs the API's tests.
 - `bash web/deploy/deploy-pull.test.sh` runs the deploy script's tests (a fake `docker`).
-- The client tests run with an inline Jest config, since the repo's preset no longer exists in
-  this React Native version:
+- The client tests run with an inline Jest config, since the repo's `react-native` preset moved to
+  `@react-native/jest-preset` in this React Native version, and that package isn't installed:
   `npx jest --config '{"testMatch":["**/__tests__/*.test.ts"],"testEnvironment":"node"}'`.
 
 ## How it differs from the native build
