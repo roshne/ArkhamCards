@@ -4,6 +4,11 @@ module.exports = {
       decorators: {
         legacy: true,
       },
+      // Web: compile imports to CommonJS as native does. The ESM path Expo picks for web turns
+      // the app's circular imports into "Cannot access X before initialization" at startup.
+      web: {
+        disableImportExportTransform: false,
+      },
     }],
   ],
   plugins: [

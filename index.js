@@ -20,6 +20,7 @@ SplashScreen.preventAutoHideAsync();
 import { store, persistor } from './src/application/store';
 import createApolloClient from './src/data/apollo/createApolloClient';
 import AppNavigator from './src/navigation/AppNavigator';
+import loadFonts from './src/lib/loadFonts';
 
 if (__DEV__) {
   // Adds messages only in a dev environment
@@ -66,6 +67,7 @@ function App() {
         // You can add any additional loading logic here
         // For now, we'll just mark it as ready
         await new Promise(resolve => setTimeout(resolve, 100)); // Small delay to ensure everything is initialized
+        await loadFonts();
       } catch (e) {
         console.warn(e);
       } finally {

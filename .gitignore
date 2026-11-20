@@ -98,3 +98,5 @@ rnvi-fonts/
 # translations
 *.mocredentials.json
 *.mo
+# web build output
+dist-web/

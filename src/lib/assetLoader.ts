@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -145,7 +146,10 @@ export async function loadAsset<T = any>(assetKey: string): Promise<T> {
       }
 
       // Read and parse the JSON file
-      const content = await FileSystem.readAsStringAsync(asset.localUri);
+      // Web has no file system: the asset's URI is a URL to fetch.
+      const content = Platform.OS === 'web' ?
+        await (await fetch(asset.localUri)).text() :
+        await FileSystem.readAsStringAsync(asset.localUri);
       const json = JSON.parse(content);
 
       // Cache the parsed result

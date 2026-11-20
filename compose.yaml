@@ -1,0 +1,14 @@
+# Arkham Cards web POC on nitro, as a Dockge stack (/opt/stacks/arkhamcards is this checkout).
+# Update: git pull && docker compose up -d --build
+services:
+  arkhamcards-web:
+    build: .
+    image: arkhamcards-web:poc
+    container_name: arkhamcards-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8796:80"   # loopback only; reach it with: ssh -L 8796:127.0.0.1:8796 nitro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 1m
+      timeout: 5s
