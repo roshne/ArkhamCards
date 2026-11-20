@@ -3,9 +3,10 @@
 Expo's web export of the app, served by nginx in a container.
 
 ```bash
-docker compose up -d --build                 # serves on 127.0.0.1:8796
-ssh -L 8796:127.0.0.1:8796 nitro             # from another machine, then open http://localhost:8796
+docker compose up -d --build     # on nitro; open http://192.168.7.26:8796 from the LAN
 ```
+
+The port binding in `compose.yaml` names nitro's LAN address; change it to run elsewhere.
 
 Local dev without Docker: `npx expo export -p web --output-dir dist-web`, then serve `dist-web/`
 with any static server that falls back to `index.html`.
@@ -30,5 +31,7 @@ with any static server that falls back to `index.html`.
 - Backups (file system and file picker) and haptics.
 - Saved credentials: the keychain stand-in stores nothing, so narration and Patreon sign-ins
   don't persist.
+- Sharing: the browser share sheet needs HTTPS or localhost, and the LAN address is plain
+  HTTP, so share buttons don't work there.
 - Route URLs carry `[object Object]` for some IDs, so a reload on a deck or campaign screen
   doesn't restore that screen.

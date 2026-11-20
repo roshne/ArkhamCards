@@ -7,7 +7,9 @@ services:
     container_name: arkhamcards-web
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8796:80"   # loopback only; reach it with: ssh -L 8796:127.0.0.1:8796 nitro
+      # nitro's LAN address: http://192.168.7.26:8796 from any device on the LAN. Docker
+      # publishes past ufw, so no firewall rule is involved; it is not on the internet.
+      - "192.168.7.26:8796:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 1m
