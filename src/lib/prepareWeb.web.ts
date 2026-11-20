@@ -76,20 +76,32 @@ const FONTS = {
 // reloaded; take a Web Lock around saving if either ever matters.
 let persistor: Persistor | undefined;
 let superseded = false;
+
+// Stop saving for the rest of this page's life and cover the app with `message`; reloading is
+// the way back. Also used by persistStorage.web.ts when the server refuses or can't take a save.
+export const isSuperseded = () => superseded;
+
+export function supersede(message: string) {
+  if (superseded) {
+    return;
+  }
+  superseded = true;
+  persistor?.pause();
+  const notice = document.createElement('div');
+  notice.textContent = message;
+  Object.assign(notice.style, {
+    position: 'fixed', inset: '0', zIndex: '2147483647', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', padding: '24px', textAlign: 'center',
+    background: 'rgba(0, 0, 0, 0.85)', color: '#fff', font: '18px sans-serif',
+  });
+  document.body.appendChild(notice);
+}
+
 if (typeof BroadcastChannel !== 'undefined') {
   const channel = new BroadcastChannel('arkhamcards-tabs');
   channel.onmessage = () => {
-    superseded = true;
-    persistor?.pause();
     channel.close();
-    const notice = document.createElement('div');
-    notice.textContent = 'Arkham Cards is open in another tab, so this tab no longer saves changes. Reload this tab to use it here instead.';
-    Object.assign(notice.style, {
-      position: 'fixed', inset: '0', zIndex: '2147483647', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', padding: '24px', textAlign: 'center',
-      background: 'rgba(0, 0, 0, 0.85)', color: '#fff', font: '18px sans-serif',
-    });
-    document.body.appendChild(notice);
+    supersede('Arkham Cards is open in another tab, so this tab no longer saves changes. Reload this tab to use it here instead.');
   };
   channel.postMessage('opened');
 }

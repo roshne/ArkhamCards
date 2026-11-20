@@ -3,7 +3,8 @@ import { concat, find, filter, flatMap, forEach, map, last, sortBy, uniq, values
 import { persistReducer } from 'redux-persist';
 import { createSelector } from 'reselect';
 import { c, t } from 'ttag';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// redux-persist storage: AsyncStorage on native, the user's account on web.
+import AsyncStorage from '@lib/persistStorage';
 
 import signedIn from './signedIn';
 import campaigns from './campaigns';

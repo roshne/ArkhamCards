@@ -1,5 +1,5 @@
 # Web build of Arkham Cards (POC): Expo's web export, served as static files by nginx.
-# Build: docker compose up -d --build   (see compose.yaml)
+# Build with `docker build -t arkhamcards-web:poc .`; web/README.md has how it is deployed.
 
 # Full image, not -slim: yarn needs git for the GitHub-hosted react-native-markdown-view.
 FROM node:20.19.4-bookworm AS build

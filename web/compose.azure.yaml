@@ -1,0 +1,82 @@
+# Arkham Cards web POC on the rackbops-web Azure VM, behind Cloudflare Access at
+# https://arkhamcards.rackbops.com. Same shape as the VM's other stacks: the app publishes no host
+# port, and a cloudflared token sidecar reaches it on the compose network (tunnel ingress:
+# http://web:80). The VM is too small to build the image, so it is built elsewhere and loaded:
+#   docker save arkhamcards-web:poc | gzip -1 | ssh <vm> 'gunzip | docker load'
+# On the VM this file is /opt/stacks/arkhamcards/compose.yaml, beside api/server.mjs (copied from
+# web/api). CLOUDFLARE_TUNNEL_TOKEN, ACCESS_TEAM_DOMAIN and ACCESS_AUD are in that directory's
+# .env, never here.
+name: arkhamcards
+
+services:
+  api:
+    # Per-user saved state: verifies each request's Access JWT, keeps data in the `state` volume.
+    image: node:22.23.4-alpine
+    container_name: arkhamcards-api
+    command: ["node", "/app/server.mjs"]
+    restart: unless-stopped
+    environment:
+      - ACCESS_TEAM_DOMAIN=${ACCESS_TEAM_DOMAIN:?ACCESS_TEAM_DOMAIN is unset -- set it in .env}
+      - ACCESS_AUD=${ACCESS_AUD:?ACCESS_AUD is unset -- set it in .env}
+      - DATA_DIR=/data
+    volumes:
+      - ./api/server.mjs:/app/server.mjs:ro
+      - state:/data
+    # Root (the new volume is root-owned) but with every capability dropped and a read-only root.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/healthz"]
+      interval: 1m
+      timeout: 5s
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    image: arkhamcards-web:poc
+    container_name: arkhamcards-web
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 1m
+      timeout: 5s
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  cloudflared:
+    # Pinned like the VM's other sidecars; bump the tag here and redeploy.
+    image: cloudflare/cloudflared:2026.10.3
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is unset -- set it in .env}
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      web:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  # Everyone's saved decks, campaigns and settings: back this up before removing the stack.
+  state:

@@ -5,7 +5,8 @@ import thunk from 'redux-thunk';
 import { createOffline } from '@redux-offline/redux-offline';
 import offlineConfig from '@redux-offline/redux-offline/lib/defaults';
 import { createMigrate, persistStore, persistReducer } from 'redux-persist';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// redux-persist storage: AsyncStorage on native, the user's account on web.
+import AsyncStorage from '@lib/persistStorage';
 
 import reducers, { AppState } from '@reducers';
 import { useDispatch } from 'react-redux';
