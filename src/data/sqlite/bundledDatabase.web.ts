@@ -35,6 +35,8 @@ export async function loadBundledDatabaseIfNeeded(
     // still editing (their next save would be refused). DatabaseProvider renders inside
     // PersistGate, so the saved state is loaded by now.
     const { cards, packs } = store.getState();
+    // Not packs.lastModified: a network pack fetch stores null there, so comparing it would
+    // re-apply this older bundle over newer packs on every load.
     const alreadyApplied = packs.all.length > 0 &&
       cards.schemaVersion === metadata.schemaVersion &&
       cards.cache?.lastModified === metadata.cache?.lastModified;

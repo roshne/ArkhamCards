@@ -60,13 +60,15 @@ Tests:
     never get it, and the browser keeps its own copy. If your account already has data from
     another device, the browser's older data is not merged in. If a move is interrupted and you
     open the app on another device before reloading this browser, the slices that hadn't moved
-    start fresh there and the browser's copy of them goes unused. Browser data belongs to the
+    start fresh in the account (on every device) and the browser's copy of them goes unused. Browser data belongs to the
     address it was saved under, so data saved by the retired LAN copy at `192.168.7.26:8796` can't
     move here.
   - **Conflicts:** each saved item has a version. A save made from an out-of-date copy is
     refused instead of overwriting newer data. That happens when the same item was changed in
-    another tab or on another device; merely opening the app elsewhere changes nothing. The tab
-    whose save was refused stops saving and asks for a reload; its latest change is not saved.
+    another tab or on another device. Merely opening the app elsewhere changes nothing, with two
+    exceptions: the first load after a language change, and the first load after a new card
+    bundle ships. Each re-saves the packs, cards and settings items. The tab whose save was
+    refused stops saving and asks for a reload; its latest change is not saved.
   - **Not per user:** the app's GraphQL cache and its sign-in handshake state still live in
     browser storage. Neither should hold anything personal while sign-in and sync don't work on
     web (below); that's from reading the code, not checked in a browser.
@@ -83,8 +85,9 @@ Tests:
 
 - Other languages: the cards are always the bundled English set, since translated ones can't be
   downloaded (CORS, below). Choosing another language in Settings changes the app's text until
-  the next reload, then reverts: the app clears the setting when the translated-card download it
-  starts fails (checked in a browser).
+  the next reload, then reverts (checked in a browser). The translated-card download it starts
+  leaves the saved card cache without its date, so the next load re-applies the bundled card
+  data, and that clears the language setting.
 - Sign-in and sync to Arkham Cards accounts (Firebase), ArkhamDB, Google and Apple. ArkhamDB
   needs its own OAuth credentials for this site, and its token and API endpoints refuse browser
   requests (CORS). The Arkham Cards GraphQL server also refuses browser requests, so card
