@@ -7,15 +7,11 @@ name: web-release
 # servers/node-app/ci/release.yml.example.
 #
 # linux/amd64 only, authenticated with the built-in GITHUB_TOKEN (packages: write). ubuntu-latest:
-# this repo is public, so never a self-hosted runner here.
+# this repo is public, so never a self-hosted runner here. No workflow_dispatch: GitHub only offers
+# it for workflows on the default branch, which this one isn't; re-run a tag's run to rebuild it.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "existing tag to build and publish the images for"
-        required: true
 
 permissions:
   contents: read
@@ -37,24 +33,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # refs/tags/ explicitly: a bare dispatched name would check out a branch of that name.
-          ref: ${{ github.event.inputs.tag && format('refs/tags/{0}', github.event.inputs.tag) || github.ref }}
           # Every tag and branch, so the checks below can see the newest tag and web-poc.
           fetch-depth: 0
 
       - name: Validate the tag and decide whether it takes :latest
         id: meta
         shell: bash
-        # The dispatch input reaches the shell only as $TAG (env), never spliced into the script.
         env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          TAG: ${{ github.ref_name }}
         run: |
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::'$TAG' isn't a vX.Y.Z tag -- refusing to publish it." >&2
-            exit 1
-          fi
-          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$TAG^{commit}")" ]]; then
-            echo "::error::the checked-out commit is not $TAG's -- refusing to publish it." >&2
             exit 1
           fi
           # :latest is what the host deploys, so only a tag on web-poc may move it.
@@ -64,10 +53,14 @@ jobs:
           fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           # :latest follows the newest tag only, so rebuilding an older tag never rolls the host back.
+          # Only tags this workflow would publish count (plain vX.Y.Z on web-poc): a stray
+          # v1.0.0-rc1 or a tag elsewhere would otherwise sort first and hold :latest back forever.
           # A read loop, not `| head`: under the runner's pipefail, head closing the pipe early can
           # fail the step once there are many tags.
           newest=""
-          while IFS= read -r t; do newest="$t"; break; done < <(git tag -l 'v[0-9]*' --sort=-v:refname)
+          while IFS= read -r t; do
+            if [[ "$t" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then newest="$t"; break; fi
+          done < <(git tag -l --merged origin/web-poc --sort=-v:refname 'v[0-9]*')
           if [[ "$TAG" == "$newest" ]]; then
             echo "latest=true" >> "$GITHUB_OUTPUT"
           else
@@ -84,19 +77,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push the web image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          labels: |
-            org.opencontainers.image.source=https://github.com/roshne/ArkhamCards
-            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-          tags: |
-            ghcr.io/roshne/arkhamcards-web:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/roshne/arkhamcards-web:latest' || '' }}
-
+      # Both builds push only the version tag; :latest moves in the last step, once both exist, so
+      # a failed build never leaves the host pulling one new image beside one old one.
       - name: Build and push the api image
         uses: docker/build-push-action@v6
         with:
@@ -106,6 +88,27 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/roshne/ArkhamCards
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-          tags: |
-            ghcr.io/roshne/arkhamcards-api:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/roshne/arkhamcards-api:latest' || '' }}
+          tags: ghcr.io/roshne/arkhamcards-api:${{ steps.meta.outputs.version }}
+
+      - name: Build and push the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/roshne/ArkhamCards
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+          tags: ghcr.io/roshne/arkhamcards-web:${{ steps.meta.outputs.version }}
+
+      # api before web, the same order the host's timer swaps them in.
+      - name: Point :latest at this version
+        if: steps.meta.outputs.latest == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          for image in arkhamcards-api arkhamcards-web; do
+            docker buildx imagetools create -t "ghcr.io/roshne/$image:latest" \
+              "ghcr.io/roshne/$image:$VERSION"
+          done

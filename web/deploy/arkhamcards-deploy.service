@@ -3,7 +3,8 @@
 # rackbops-web-deploy-template (servers/node-app/publish/deploy-pull.service.example).
 #
 # Install as /etc/systemd/system/arkhamcards-deploy.service, with the paired .timer. A system unit
-# that drops to the stack's user, who must be in the `docker` group (root-equivalent). The two
+# that drops to the stack's user, who must be in the `docker` group (root-equivalent): set User=
+# below to that account. The script path, like deploy-pull.sh's STACK_DIR, is fixed. The two
 # ExecStart lines run in order; if the first fails the unit fails and the timer retries next cycle.
 # Type=oneshot has no start timeout by default, so TimeoutStartSec bounds a hung pull.
 [Unit]

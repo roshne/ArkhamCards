@@ -14,12 +14,15 @@ It runs on an Azure VM as the stack in `web/compose.azure.yaml`:
 
 ### Releasing
 
-Push a `vX.Y.Z` tag on `web-poc`. `.github/workflows/web-release.yml` then builds both images on
-GitHub's hosted runners and publishes them as `ghcr.io/roshne/arkhamcards-web` and
-`ghcr.io/roshne/arkhamcards-api`, tagged `X.Y.Z` and, for the newest tag, `latest`. On the host,
-`arkhamcards-deploy.timer` checks every 5 minutes and recreates `api` and `web` when `latest`
-points at a new image (`web/deploy/deploy-pull.sh`, from rackbops-web-deploy-template). To roll
-back, set `IMAGE_TAG=X.Y.Z` in the stack's `.env`; the timer then holds that version.
+Push `web-poc`, then a `vX.Y.Z` tag on it (a tag whose commit isn't on `origin/web-poc` yet is
+refused). `.github/workflows/web-release.yml` then builds both images on GitHub's hosted runners
+and publishes them as `ghcr.io/roshne/arkhamcards-web` and `ghcr.io/roshne/arkhamcards-api`,
+tagged `X.Y.Z`. If it is the newest plain `vX.Y.Z` tag on `web-poc`, both images' `latest` then
+moves to it, after both builds succeed. On the host, `arkhamcards-deploy.timer` checks every 5
+minutes and recreates `api`, then `web`, when `latest` points at a new image
+(`web/deploy/deploy-pull.sh`, from rackbops-web-deploy-template). To rebuild a tag, re-run its
+workflow run. To roll back, set `IMAGE_TAG=X.Y.Z` in the stack's `.env`; the timer then holds
+both images at that version until the line is removed.
 
 A change to `web/compose.azure.yaml` itself still has to be copied to the host by hand, followed
 by `docker compose up -d`.
@@ -28,18 +31,21 @@ by `docker compose up -d`.
 
 - **On Cloudflare:** a remotely managed tunnel routing the hostname to `http://web:80` with Access
   required, and an Access application for the hostname.
-- **In the stack directory** (`/opt/stacks/arkhamcards`):
+- **A release** (above): the images must exist on GHCR before the host can pull them. The packages
+  are public (they took this repo's visibility), so the host needs no registry login.
+- **In the stack directory**, which must be `/opt/stacks/arkhamcards` (the script and the unit
+  both name it), owned by a user in the `docker` group:
   - `compose.yaml`: a copy of `web/compose.azure.yaml`.
-  - `deploy/deploy-pull.sh`: a copy of `web/deploy/deploy-pull.sh`.
+  - `deploy/deploy-pull.sh`: a copy of `web/deploy/deploy-pull.sh` (create `deploy/` first).
   - `.env` (mode 600), holding:
     - `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel's connector token.
     - `ACCESS_TEAM_DOMAIN`: `<team>.cloudflareaccess.com`.
     - `ACCESS_AUD`: the Access application's audience tag.
-    - `REGISTRY_USER` and `REGISTRY_TOKEN`: only if the GHCR packages are private, a login with
-      `read:packages`.
-- **systemd:** copy `web/deploy/arkhamcards-deploy.{service,timer}` to `/etc/systemd/system/`,
-  then `systemctl daemon-reload && systemctl enable --now arkhamcards-deploy.timer`. The unit
-  runs as the stack's user, who must be in the `docker` group.
+    - `REGISTRY_USER` and `REGISTRY_TOKEN`: only if the GHCR packages are made private, a login
+      with `read:packages`.
+- **systemd:** copy `web/deploy/arkhamcards-deploy.{service,timer}` to `/etc/systemd/system/`, set
+  the service's `User=` to the stack directory's owner, then
+  `systemctl daemon-reload && systemctl enable --now arkhamcards-deploy.timer`.
 
 Then `docker compose up -d` in the stack directory.
 

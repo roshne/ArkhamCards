@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Standalone test harness for deploy-pull.sh, copied from rackbops-web-deploy-template with only
-# the script path and the two substitutions changed. Run: bash web/deploy/deploy-pull.test.sh
+# the script path and the two substitutions changed, plus case 9. Run:
+#   bash web/deploy/deploy-pull.test.sh
+# Here SERVICE is read from the environment, not a placeholder line: cases 1-8 still overwrite that
+# line with SERVICE="example", and case 9 runs the script's own line.
 # Original header:
 # Standalone test harness for deploy-pull.sh.example
 # (Rackbops/rackbops-web-deploy-template#108). Not a template .example a consumer copies -- this is
@@ -226,6 +229,22 @@ output="$(PATH="$shim_dir:$PATH" DOCKER_CALL_LOG="$log" LOGIN_LOG="$login_log" W
   CONTAINER_ID="c1" HAVE_ID="sha256:abc" bash "$sut" 2>&1)"
 if grep -qx 'stdin=tok' "$login_log"; then pass "case8: CRLF-terminated quoted token is unquoted"; else fail "case8: login stdin was: $(cat "$login_log")"; fi
 rm -rf "$stack" "$shim_dir"; rm -f "$sut" "$log" "$login_log"
+
+# ---------------------------------------------------------------------------
+echo "=== Case 9: SERVICE comes from the environment, and its absence stops the script ==="
+stack="$(make_stack)"; shim_dir="$(make_docker_shim)"; log="$(mktemp)"
+sut="$(mktemp)"
+sed -e "s|^STACK_DIR=.*|STACK_DIR=\"$stack\"|" "$SUT_SRC" > "$sut"
+output="$(env -u SERVICE PATH="$shim_dir:$PATH" DOCKER_CALL_LOG="$log" bash "$sut" 2>&1)"
+rc=$?
+if [[ $rc -ne 0 ]]; then pass "case9: exits non-zero without SERVICE"; else fail "case9: expected non-zero exit without SERVICE (output: $output)"; fi
+if grep -q "set SERVICE" <<<"$output"; then pass "case9: says SERVICE is missing"; else fail "case9: output doesn't name SERVICE: $output"; fi
+if [[ -s "$log" ]]; then fail "case9: docker ran without SERVICE: $(cat "$log")"; else pass "case9: docker never ran without SERVICE"; fi
+: > "$log"
+output="$(PATH="$shim_dir:$PATH" DOCKER_CALL_LOG="$log" SERVICE=api WANT_ID="sha256:abc" \
+  CONTAINER_ID="c1" HAVE_ID="sha256:abc" bash "$sut" 2>&1)"
+if grep -qx "docker compose pull api" "$log"; then pass "case9: pulls the service named in SERVICE"; else fail "case9: docker calls were: $(cat "$log")"; fi
+rm -rf "$stack" "$shim_dir"; rm -f "$sut" "$log"
 
 echo
 echo "$pass_count passed, $fail_count failed"
