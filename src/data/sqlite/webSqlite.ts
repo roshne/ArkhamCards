@@ -49,8 +49,8 @@ export function replaceDatabase(name: string, bytes: Uint8Array): Promise<void> 
 function run(db: SqlJsDatabase, sql: string, params?: unknown[]): QueryResult {
   const statement = db.prepare(sql);
   try {
-    // sql.js rejects booleans/undefined, which TypeORM passes for flags and missing values.
-    statement.bind((params || []).map((p) => typeof p === 'boolean' ? (p ? 1 : 0) : (p === undefined ? null : p)));
+    // sql.js rejects undefined, which TypeORM passes for missing values.
+    statement.bind((params || []).map((p) => (p === undefined ? null : p)));
     const rows: Record<string, unknown>[] = [];
     while (statement.step()) {
       rows.push(statement.getAsObject());
