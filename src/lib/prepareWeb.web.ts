@@ -7,8 +7,9 @@ import type { Persistor } from 'redux-persist';
 // react-native-web's Alert.alert does nothing, which silently drops every confirmation prompt.
 // This package (already a dependency) draws them as an in-page <dialog>, but inserts the title
 // and message as HTML, so escape them and turn newlines into line breaks.
-const toHtml = (text?: string | null) =>
-  text?.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`).replace(/\n/g, '<br>');
+// String(): some callers pass an Error as the title.
+const toHtml = (text?: string | null) => (text == null ? undefined :
+  String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`).replace(/\n/g, '<br>'));
 Alert.alert = (title, message, buttons) => WebAlert.alert(toHtml(title) ?? '', toHtml(message), buttons);
 
 // Native builds embed these fonts at build time (expo-font plugin); the browser has to load
@@ -68,10 +69,11 @@ const FONTS = {
 // redux-persist saves whole slices from memory and never re-reads storage, so two open tabs
 // would overwrite each other's decks and campaigns. The newest tab wins: older tabs stop saving
 // and cover themselves with a notice. This tab announces itself as soon as this module loads,
-// which index.js does before creating the store, so older tabs stop before it reads storage.
-// shortcut: an older tab's write already queued when the message lands (milliseconds) can still
-// be overwritten, and two tabs opened at the same moment (a session restore) both stop saving
-// until one is reloaded; take a Web Lock around saving if either ever matters.
+// which index.js does just before creating the store, so older tabs stop within the time the
+// message takes to arrive (milliseconds), not after the first render.
+// shortcut: anything an older tab saves before the message reaches it can still be overwritten,
+// and two tabs opened at the same moment (a session restore) both stop saving until one is
+// reloaded; take a Web Lock around saving if either ever matters.
 let persistor: Persistor | undefined;
 let superseded = false;
 if (typeof BroadcastChannel !== 'undefined') {

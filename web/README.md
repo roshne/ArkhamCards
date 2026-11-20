@@ -29,7 +29,8 @@ with any static server that falls back to `index.html`.
 ## Not working on web
 
 - Other languages: the web build is English. Picking another language in Settings lasts until
-  the next reload, because the translated cards can't be downloaded (CORS, below).
+  the next reload: each page load re-applies the bundled English cards, which clears the
+  setting. Translated cards can't be downloaded either (CORS, below).
 - Sign-in and sync: Arkham Cards accounts (Firebase), ArkhamDB, Google and Apple sign-in.
   The Arkham Cards GraphQL server also refuses browser requests (CORS), so card updates after
   the bundled snapshot don't download.
